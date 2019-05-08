@@ -157,7 +157,7 @@ int main(int argc, char* argv[])
                 sequential_exclusive_scan(data.begin(), data.end(), result.begin(), 0);
                 benchmark::DoNotOptimize(result);
             }
-        })->Range(10, 40000000);
+        })->Range(10, 40000000)->UseRealTime();
 
     benchmark::RegisterBenchmark(
         "Parallel-STD",
@@ -172,7 +172,7 @@ int main(int argc, char* argv[])
                 exclusive_scan(data.begin(), data.end(), result.begin(), 0);
                 benchmark::DoNotOptimize(result);
             }
-        })->Range(10, 40000000);
+        })->Range(10, 40000000)->UseRealTime();
 
 
     benchmark::RunSpecifiedBenchmarks();

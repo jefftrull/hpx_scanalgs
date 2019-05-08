@@ -47,7 +47,7 @@ void exs_bench(ExePolicy & ex, char const * name)
         exclusive_scan(ex, data.begin(), data.end(), result.begin(), 0);
         benchmark::DoNotOptimize(result);
       }
-    })->Range(10, 40000000);
+    })->Range(10, 40000000)->UseRealTime();
 }
 
 int hpx_main(int argc, char **argv)
