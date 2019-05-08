@@ -22,8 +22,10 @@ FwdIter2 sequential_exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T
     return dst;
 }
 
+std::size_t thread_count = 4;
+
 template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
-FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
+std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
 {
     std::size_t sz = std::distance(start, end);
 
@@ -35,15 +37,12 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
     }
 */
 
-    // 2 threads isn't useful (same work, no overlap)
-    const std::size_t thread_count = 4;   // this seems like the sweet spot with the current code
-
     std::size_t partition_size = sz / thread_count;
 //    std::cout << "using partition size " << partition_size << "\n";
 
     // We do this in two phases contained in the same task, for cache locality reasons -
     // after the first phase the partition will be (at least in part) in the same core
-    std::vector<std::promise<T>> phase2_input_handles(thread_count);
+    std::vector<std::promise<T>> phase2_input_handles(thread_count + 1);
 
     // the "carry in" to the first group is already available - it's our init parameter
     phase2_input_handles[0].set_value(init);
@@ -83,7 +82,10 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
 /*
                            std::cout << "launching accumulate " << (thread_count - 1) << "\n";
 */
+                       T local_result = std::accumulate(first, end, T{}, op);
+                       // store the accumulated result for the next "chunk"
                        T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
+                       phase2_input_handles[thread_count].set_value(op(prior_result, local_result));
 //                           std::cout << "launching exclusive_scan " << (thread_count - 1) << "\n";
                        sequential_exclusive_scan(first, end, ldst, prior_result, op);
                    }));
@@ -94,9 +96,38 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
         f.get();
     }
 
-    return end;
+    ldst += std::distance(first, end);
+    return std::make_pair(ldst, phase2_input_handles[thread_count].get_future().get());
 }
 
+std::size_t chunksize = 2500000;
+
+// chunk up the original data in cache-friendly sizes
+template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
+FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
+{
+//    const std::size_t chunksize = 1250000;  // my laptop cache is 6MB; this should use 5MB
+
+    std::size_t sz = std::distance(start, end);
+
+    std::size_t chunk_count = std::max(sz / chunksize, std::size_t{1});
+
+    FwdIter1 last = start;
+    std::advance(last, std::min(chunksize, sz));
+    for (std::size_t i = 0;
+         i < (chunk_count - 1);
+         ++i, std::advance(start, chunksize), std::advance(last, chunksize))
+    {
+        // run the multi-threaded algorithm on the ith chunk
+        std::tie(dst, init) = exclusive_scan_mt(start, last, dst, init, op);
+    }
+
+    // now the irregular final chunk
+    std::tie(dst, init) = exclusive_scan_mt(start, end, dst, init, op);
+
+    return dst;
+
+}
 void verify()
 {
     // generate a bunch of random cases to show it works
@@ -121,6 +152,13 @@ void verify()
 
     }
 
+}
+
+// supply our custom thread_count/chunksize choices
+static void CustomArguments(benchmark::internal::Benchmark* b) {
+    for (int tc = 4; tc <=8; tc++)
+        for (int chunk = 800000; chunk <= 40000000; chunk *= 2)
+            b->Args({40000000, tc, chunk});
 }
 
 int main(int argc, char* argv[])
@@ -161,11 +199,29 @@ int main(int argc, char* argv[])
             std::generate(data.begin(), data.end(),
                           [&]() { return dist(mersenne_engine); });
             std::vector<int> result(sz);
+            thread_count = state.range(1);
+            for (auto _ : state) {
+                exclusive_scan_mt(data.begin(), data.end(), result.begin(), 0);
+                benchmark::DoNotOptimize(result);
+            }
+        })->RangeMultiplier(2)->Ranges({{10, 40000000}, {1, 8}})->UseRealTime();   // size/threadcount
+
+    benchmark::RegisterBenchmark(
+        "Parallel-Chunked-STD",
+        [&](benchmark::State & state)
+        {
+            auto sz = state.range(0);
+            std::vector<int> data(sz);
+            std::generate(data.begin(), data.end(),
+                          [&]() { return dist(mersenne_engine); });
+            std::vector<int> result(sz);
+            thread_count = state.range(1);
+            chunksize = state.range(2);
             for (auto _ : state) {
                 exclusive_scan(data.begin(), data.end(), result.begin(), 0);
                 benchmark::DoNotOptimize(result);
             }
-        })->Range(10, 40000000)->UseRealTime();
+        })->Apply(CustomArguments)->UseRealTime();
 
 
     benchmark::RunSpecifiedBenchmarks();
