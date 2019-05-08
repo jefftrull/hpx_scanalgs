@@ -43,9 +43,13 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
 
     // We do this in two phases contained in the same task, for cache locality reasons -
     // after the first phase the partition will be (at least in part) in the same core
+    std::vector<std::promise<T>> phase2_input_handles(thread_count);
+
+    // the "carry in" to the first group is already available - it's our init parameter
+    phase2_input_handles[0].set_value(init);
+
+    // we also need to clean up the tasks at the end
     std::vector<std::future<void>> task_complete_handles;
-    std::vector<std::promise<T>> phase1_handles(thread_count);
-    std::vector<std::promise<T>> phase2_init_handles(thread_count);
 
     FwdIter1 first = start;
     FwdIter2 ldst = dst;
@@ -58,14 +62,16 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
 
         task_complete_handles.push_back(
             std::async(std::launch::async,
-                       [=, &phase1_handles, &phase2_init_handles](){
+                       [=, &phase2_input_handles](){
                            // phase 1: parallel accumulates on each partition
 //                           std::cout << "launching accumulate " << i << "\n";
-                           phase1_handles[i].set_value(std::accumulate(first, last, T{}, op));
+                           T local_result = std::accumulate(first, last, T{}, op);
+                           // store the accumulated result for the next partition
+                           T prior_result = phase2_input_handles[i].get_future().get();
+                           phase2_input_handles[i+1].set_value(op(prior_result, local_result));
                            // phase 2: sequential scan using results from partitions 0..i-1
-                           T init = phase2_init_handles[i].get_future().get();
 //                           std::cout << "launching exclusive_scan " << i << "\n";
-                           sequential_exclusive_scan(first, last, ldst, init, op);
+                           sequential_exclusive_scan(first, last, ldst, prior_result, op);
                        }));
     }
 
@@ -73,27 +79,14 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
     // special case the final partition
     task_complete_handles.push_back(
         std::async(std::launch::async,
-                   [=, &phase1_handles, &phase2_init_handles](){
+                   [=, &phase2_input_handles](){
 /*
                            std::cout << "launching accumulate " << (thread_count - 1) << "\n";
-                       phase1_handles[thread_count - 1].set_value(std::accumulate(first, end, T{}, op));
 */
-                       T init = phase2_init_handles[thread_count - 1].get_future().get();
+                       T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
 //                           std::cout << "launching exclusive_scan " << (thread_count - 1) << "\n";
-                       sequential_exclusive_scan(first, end, ldst, init, op);
+                       sequential_exclusive_scan(first, end, ldst, prior_result, op);
                    }));
-
-    // As phase 1 results become available, supply them to waiting partitions
-    for (std::size_t i = 0; i < thread_count; i++)
-    {
-//        std::cout << "supplying result from accumulate " << (i-1) << "\n";
-        phase2_init_handles[i].set_value(init);
-
-        // update with sum for this partition
-        if (i < (thread_count - 1))
-            init = op(init, phase1_handles[i].get_future().get());
-        
-    }
 
     // phase 3: wait for completion of partition scans
     for (auto & f : task_complete_handles)
