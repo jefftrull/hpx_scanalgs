@@ -5,6 +5,8 @@ cmake_minimum_required( VERSION 3.12 )
 # create a compilation database for clangd etc.
 set( CMAKE_EXPORT_COMPILE_COMMANDS ON )
 
+set( CMAKE_CXX_STANDARD 17 )
+
 find_package( Boost 1.69 REQUIRED COMPONENTS system program_options filesystem )
 
 # HPX provides an HPXConfig.cmake so as long as it's in HPX_DIR we can do this:
@@ -42,10 +44,12 @@ include(CheckIPOSupported)
 check_ipo_supported( RESULT IPO_ENABLED )
 if( IPO_ENABLED )
 set_target_properties( exsvp PROPERTIES
-  CXX_STANDARD 17
   INTERPROCEDURAL_OPTIMIZATION ON
 )
 endif()
+
+add_executable( ba basic_algs.cpp )
+target_link_libraries( ba gbench )
 
 add_executable( mp manual_parallel.cpp )
 find_package( Threads )

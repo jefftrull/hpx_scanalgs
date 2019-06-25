@@ -9,8 +9,18 @@
 #include <iterator>
 #include <cassert>
 #include <random>
+#include <chrono>
+#include <iomanip>
 
 #include <benchmark/benchmark.h>
+
+void logtime(std::string const& log)
+{
+    std::cout << log << " at ";
+
+    using namespace std::chrono;
+    std::cout << duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() << "\n";
+}
 
 template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
 FwdIter2 sequential_exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op = Op())
@@ -47,7 +57,7 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
     // the "carry in" to the first group is already available - it's our init parameter
     phase2_input_handles[0].set_value(init);
 
-    // we also need to clean up the tasks at the end
+    // We also need to clean up the tasks at the end
     std::vector<std::future<void>> task_complete_handles;
 
     FwdIter1 first = start;
@@ -63,13 +73,13 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
             std::async(std::launch::async,
                        [=, &phase2_input_handles](){
                            // phase 1: parallel accumulates on each partition
-//                           std::cout << "launching accumulate " << i << "\n";
+                           logtime("launching accumulate");
                            T local_result = std::accumulate(first, last, T{}, op);
                            // store the accumulated result for the next partition
                            T prior_result = phase2_input_handles[i].get_future().get();
                            phase2_input_handles[i+1].set_value(op(prior_result, local_result));
                            // phase 2: sequential scan using results from partitions 0..i-1
-//                           std::cout << "launching exclusive_scan " << i << "\n";
+                           logtime("launching exclusive_scan");
                            sequential_exclusive_scan(first, last, ldst, prior_result, op);
                        }));
     }
@@ -85,6 +95,7 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
                        T local_result = std::accumulate(first, end, T{}, op);
                        // store the accumulated result for the next "chunk"
                        T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
+                       logtime("launching exclusive scan " + std::to_string(thread_count - 1));
                        phase2_input_handles[thread_count].set_value(op(prior_result, local_result));
 //                           std::cout << "launching exclusive_scan " << (thread_count - 1) << "\n";
                        sequential_exclusive_scan(first, end, ldst, prior_result, op);
@@ -136,11 +147,12 @@ void verify()
     std::uniform_int_distribution<int> values_dist{0, 20};
     std::uniform_int_distribution<int> sizes_dist{1, 100000};
 
-    const unsigned testcount = 10000;
+    const unsigned testcount = 10;
 
     for (unsigned t = 0; t < testcount; t++)
     {
-        auto sz = sizes_dist(mersenne_engine);
+//        auto sz = sizes_dist(mersenne_engine);
+        auto sz = 40000000;
         std::vector<int> data(sz);
         std::generate(data.begin(), data.end(),
                       [&]() { return values_dist(mersenne_engine); });
@@ -163,10 +175,8 @@ static void CustomArguments(benchmark::internal::Benchmark* b) {
 
 int main(int argc, char* argv[])
 {
-/*
     verify();
     std::exit(0);
-*/
 
     // process and remove gbench arguments
     benchmark::Initialize(&argc, argv);
