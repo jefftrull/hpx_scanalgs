@@ -53,8 +53,23 @@ target_link_libraries( ba gbench )
 
 add_executable( mp manual_parallel.cpp )
 find_package( Threads )
-target_link_libraries( mp Threads::Threads gbench )
+target_link_libraries( mp PRIVATE Threads::Threads gbench )
 
-target_link_libraries( exsvp gbench Boost::system Boost::program_options )
+target_link_libraries( exsvp PRIVATE gbench Boost::system Boost::program_options )
 hpx_setup_target( exsvp )
+
+if( CMAKE_SYSTEM_NAME STREQUAL Linux )
+  # tracepoint support
+  add_library( tp tracepoints.cpp )
+  target_include_directories( tp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} )
+  target_link_libraries( tp PUBLIC lttng-ust dl )
+
+  add_library( tp_hpx tracepoints_hpx.cpp )
+  target_link_libraries( tp_hpx PUBLIC lttng-ust dl )
+  hpx_setup_target( tp_hpx )
+
+  target_include_directories( exsvp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} )
+  target_link_libraries( exsvp PRIVATE tp tp_hpx )
+  target_link_libraries( mp PRIVATE tp tp_hpx )
+endif()
 

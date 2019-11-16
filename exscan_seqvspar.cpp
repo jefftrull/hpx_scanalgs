@@ -10,6 +10,10 @@
 
 #include <benchmark/benchmark.h>
 
+#include <stdio.h>   // for getchar(). UGH
+
+#include "tracepoints.h"
+
 int main(int argc, char* argv[])
 {
     // process and remove gbench arguments
@@ -44,8 +48,10 @@ void exs_bench(ExePolicy & ex, char const * name)
                     [&]() { return dist(mersenne_engine); });
       std::vector<int> result(sz + 1);
       for (auto _ : state) {
-        exclusive_scan(ex, data.begin(), data.end(), result.begin(), 0);
-        benchmark::DoNotOptimize(result);
+          tracepoint(HPX_ALG, benchmark_exe_start);
+          exclusive_scan(ex, data.begin(), data.end(), result.begin(), 0);
+          tracepoint(HPX_ALG, benchmark_exe_stop);
+          benchmark::DoNotOptimize(result);
       }
     })->Range(10, 40000000)->UseRealTime();
 }

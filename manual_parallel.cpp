@@ -12,6 +12,8 @@
 #include <chrono>
 #include <iomanip>
 
+#include <hpx/parallel/util/tracepoints.h>
+
 #include <benchmark/benchmark.h>
 
 void logtime(std::string const& log)
