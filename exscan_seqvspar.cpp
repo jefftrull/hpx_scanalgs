@@ -26,6 +26,9 @@ int main(int argc, char* argv[])
     };
 */
 
+    std::cout << "press enter to start benchmarking" << std::endl;
+    getchar();
+
     // Initialize and run HPX
     return hpx::init(argc, argv, cfg);
 }
