@@ -39,7 +39,7 @@ set_target_properties( gbench PROPERTIES
 )
 add_dependencies( gbench GBENCH )
 
-add_executable( exsvp exscan_seqvspar.cpp )
+add_hpx_executable( exsvp SOURCES exscan_seqvspar.cpp COMPONENT_DEPENDENCIES iostreams )
 include(CheckIPOSupported)
 check_ipo_supported( RESULT IPO_ENABLED )
 if( IPO_ENABLED )
@@ -53,6 +53,7 @@ target_link_libraries( ba gbench )
 
 add_executable( mp manual_parallel.cpp )
 find_package( Threads )
+hpx_setup_target( mp )
 target_link_libraries( mp PRIVATE Threads::Threads gbench )
 
 target_link_libraries( exsvp PRIVATE gbench Boost::system Boost::program_options )
