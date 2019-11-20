@@ -40,6 +40,7 @@ from functools import reduce
 import babeltrace   # version 1.0
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
 from scipy.stats import pearsonr
 
 def display_bm(title, evts, seq_runtime=None):
@@ -49,6 +50,7 @@ def display_bm(title, evts, seq_runtime=None):
     starttimes = {}   # key is (start_ofs, stop_ofs, stage)
     f1_durations = {} # key is (start_ofs, stop_ofs)
     f3_durations = {} # key is (start_ofs, stop_ofs)
+    f2_times = {}     # key is t, value is location (chunk boundary)
 
     basetime = None
     chunksize = -1
@@ -76,6 +78,10 @@ def display_bm(title, evts, seq_runtime=None):
             else:
                 f3_durations[(event['start_ofs'], event['stop_ofs'])] = (start, stop)
 
+        if event.name == 'HPX:stage2':
+            t = event.timestamp - basetime
+            f2_times[t] = event['loc']
+
     fig, ax = plt.subplots()
 
     for chunk in f1_durations:
@@ -94,6 +100,9 @@ def display_bm(title, evts, seq_runtime=None):
     ax.set_title(title)
     plt.gca().invert_yaxis()
 
+    # mark f2 execution points
+    plt.scatter(x=f2_times.keys(), y=f2_times.values(), marker='d', c='cyan')
+
     # also mark the sequential alg's runtime for comparison
     seqline = None
     if seq_runtime:
@@ -101,7 +110,8 @@ def display_bm(title, evts, seq_runtime=None):
 
     # a helpful legend
     handles = [mpatches.Patch(color='red', label='Stage 1'),
-                mpatches.Patch(color='orange', label='Stage 3')]
+               mlines.Line2D([], [], color='cyan', marker='d', linestyle='None', label='Stage 2'),
+               mpatches.Patch(color='orange', label='Stage 3')]
     if seq_runtime:
         handles.append(seqline)
     plt.legend(handles=handles)
