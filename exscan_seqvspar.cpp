@@ -90,10 +90,19 @@ void exs_bench(ExePolicy & ex, char const * name)
                            unlimited_number_of_chunks());
 
       for (auto _ : state) {
+          state.PauseTiming();
+          // flush input/output data to ensure we are "cold"
+          for (int * pt = data.data(); pt < (data.data() + sz); pt += 16)
+              _mm_clflush(pt);
+          for (int * pt = result.data(); pt < (result.data() + sz); pt += 16)
+              _mm_clflush(pt);
+          state.ResumeTiming();
+
           tracepoint(HPX_ALG, benchmark_exe_start);
           exclusive_scan(ex_cs, data.begin(), data.end(), result.begin(), 0);
           tracepoint(HPX_ALG, benchmark_exe_stop);
           benchmark::DoNotOptimize(result);
+          benchmark::ClobberMemory();
       }
     })->Apply(sz_range_setter)->UseRealTime();
 }
