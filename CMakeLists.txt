@@ -2,6 +2,8 @@
 
 cmake_minimum_required( VERSION 3.12 )
 
+project( hpx_scanalgs )
+
 # create a compilation database for clangd etc.
 set( CMAKE_EXPORT_COMPILE_COMMANDS ON )
 
@@ -55,6 +57,5 @@ add_executable( mp manual_parallel.cpp )
 find_package( Threads )
 target_link_libraries( mp Threads::Threads gbench )
 
-target_link_libraries( exsvp gbench Boost::system Boost::program_options )
-hpx_setup_target( exsvp )
+hpx_setup_target( exsvp DEPENDENCIES gbench Boost::system Boost::program_options )
 
