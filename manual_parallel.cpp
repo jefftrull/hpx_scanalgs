@@ -115,6 +115,7 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
 
 std::size_t chunksize = 2500000;
 
+namespace jet {
 // chunk up the original data in cache-friendly sizes
 template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
 FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
@@ -141,6 +142,8 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
     return dst;
 
 }
+}
+
 void verify()
 {
     // generate a bunch of random cases to show it works
@@ -159,7 +162,7 @@ void verify()
         std::generate(data.begin(), data.end(),
                       [&]() { return values_dist(mersenne_engine); });
         std::vector<int> par_result(sz);
-        exclusive_scan(data.begin(), data.end(), par_result.begin(), 1);
+        jet::exclusive_scan(data.begin(), data.end(), par_result.begin(), 1);
         std::vector<int> ser_result(sz);
         sequential_exclusive_scan(data.begin(), data.end(), ser_result.begin(), 1);
         assert(par_result == ser_result);
@@ -230,7 +233,7 @@ int main(int argc, char* argv[])
             thread_count = state.range(1);
             chunksize = state.range(2);
             for (auto _ : state) {
-                exclusive_scan(data.begin(), data.end(), result.begin(), 0);
+                jet::exclusive_scan(data.begin(), data.end(), result.begin(), 0);
                 benchmark::DoNotOptimize(result);
             }
         })->Apply(CustomArguments)->UseRealTime();

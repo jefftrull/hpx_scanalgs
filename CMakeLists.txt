@@ -2,6 +2,8 @@
 
 cmake_minimum_required( VERSION 3.12 )
 
+project( hpx_scanalgs )
+
 # create a compilation database for clangd etc.
 set( CMAKE_EXPORT_COMPILE_COMMANDS ON )
 
@@ -56,8 +58,7 @@ find_package( Threads )
 hpx_setup_target( mp )
 target_link_libraries( mp PRIVATE Threads::Threads gbench )
 
-target_link_libraries( exsvp PRIVATE gbench Boost::system Boost::program_options )
-hpx_setup_target( exsvp )
+hpx_setup_target( exsvp DEPENDENCIES gbench Boost::system Boost::program_options )
 
 if( CMAKE_SYSTEM_NAME STREQUAL Linux )
   # tracepoint support
