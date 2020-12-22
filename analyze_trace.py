@@ -139,6 +139,10 @@ bm_stage_gaps = []
 
 evts = col.events
 for evt in evts:
+    # skip forward to benchmark start
+    if evt.name != 'HPX_ALG:benchmark_exe_start':
+        continue
+
     bm_start = evt.timestamp
 
     # handle benchmark start
