@@ -43,18 +43,17 @@ int main(int argc, char* argv[])
     // process and remove gbench arguments
     benchmark::Initialize(&argc, argv);
 
+    hpx::init_params init_args;
     // By default this should run on all available cores
-    std::vector<std::string> const cfg = {};
-/*
-        "hpx.os_threads=cores"
+    init_args.cfg = {
+//        "hpx.os_threads=5"
     };
-*/
 
     std::cout << "press enter to start benchmarking" << std::endl;
     getchar();
 
     // Initialize and run HPX
-    return hpx::init(argc, argv, cfg);
+    return hpx::init(argc, argv, init_args);
 }
 
 // setter for size/chunksize options
@@ -111,8 +110,8 @@ void exs_bench(ExePolicy & ex, char const * name)
 
 // sequential version has no "chunksize"
 template <>
-void exs_bench<hpx::parallel::execution::sequenced_policy>(
-    hpx::parallel::execution::sequenced_policy const & ex,
+void exs_bench<hpx::execution::sequenced_policy>(
+    hpx::execution::sequenced_policy const & ex,
     char const * name)
 {
     using namespace hpx::parallel;
@@ -154,8 +153,8 @@ int hpx_main(int argc, char **argv)
     using namespace hpx::parallel;
     using namespace hpx::util;
 
-    exs_bench(execution::seq, "Sequential");
-    exs_bench(execution::par, "Parallel");
+    exs_bench(hpx::execution::seq, "Sequential");
+    exs_bench(hpx::execution::par, "Parallel");
 
     benchmark::RunSpecifiedBenchmarks();
 
