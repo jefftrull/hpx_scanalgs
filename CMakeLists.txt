@@ -66,12 +66,8 @@ if( CMAKE_SYSTEM_NAME STREQUAL Linux )
   target_include_directories( tp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} )
   target_link_libraries( tp PUBLIC lttng-ust dl )
 
-  add_library( tp_hpx tracepoints_hpx.cpp )
-  target_link_libraries( tp_hpx PUBLIC lttng-ust dl )
-  hpx_setup_target( tp_hpx )
+  target_link_libraries( exsvp PRIVATE dl tp )
+  target_link_libraries( mp PRIVATE tp )
 
-  target_include_directories( exsvp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} )
-  target_link_libraries( exsvp PRIVATE tp tp_hpx )
-  target_link_libraries( mp PRIVATE tp tp_hpx )
 endif()
 

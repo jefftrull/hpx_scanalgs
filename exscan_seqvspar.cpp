@@ -1,6 +1,9 @@
 // Trying to reproduce HPX exclusive_scan performance issues
 // Author: Jeff Trull <edaskel@att.net>
 
+#define TRACEPOINT_DEFINE
+#include "tracepoints.h"
+
 #include <random>
 
 #include <hpx/hpx_init.hpp>
@@ -12,7 +15,6 @@
 
 #include <stdio.h>   // for getchar(). UGH
 
-#include "tracepoints.h"
 
 //
 // special executor parameters for benchmarking
