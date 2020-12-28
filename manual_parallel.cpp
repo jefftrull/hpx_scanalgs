@@ -76,7 +76,7 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
                        [=, &phase2_input_handles](){
                            // phase 1: parallel accumulates on each partition
                            logtime("launching accumulate");
-                           T local_result = std::accumulate(first, last, T{}, op);
+                           T local_result = std::reduce(first, last, T{}, op);
                            // store the accumulated result for the next partition
                            T prior_result = phase2_input_handles[i].get_future().get();
                            phase2_input_handles[i+1].set_value(op(prior_result, local_result));
@@ -94,7 +94,7 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
 /*
                            std::cout << "launching accumulate " << (thread_count - 1) << "\n";
 */
-                       T local_result = std::accumulate(first, end, T{}, op);
+                       T local_result = std::reduce(first, end, T{}, op);
                        // store the accumulated result for the next "chunk"
                        T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
                        logtime("launching exclusive scan " + std::to_string(thread_count - 1));
