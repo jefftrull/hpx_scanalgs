@@ -75,13 +75,11 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
             std::async(std::launch::async,
                        [=, &phase2_input_handles](){
                            // phase 1: parallel accumulates on each partition
-                           logtime("launching accumulate");
                            T local_result = std::reduce(first, last, T{}, op);
                            // store the accumulated result for the next partition
                            T prior_result = phase2_input_handles[i].get_future().get();
                            phase2_input_handles[i+1].set_value(op(prior_result, local_result));
                            // phase 2: sequential scan using results from partitions 0..i-1
-                           logtime("launching exclusive_scan");
                            sequential_exclusive_scan(first, last, ldst, prior_result, op);
                        }));
     }
@@ -91,15 +89,10 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
     task_complete_handles.push_back(
         std::async(std::launch::async,
                    [=, &phase2_input_handles](){
-/*
-                           std::cout << "launching accumulate " << (thread_count - 1) << "\n";
-*/
                        T local_result = std::reduce(first, end, T{}, op);
                        // store the accumulated result for the next "chunk"
                        T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
-                       logtime("launching exclusive scan " + std::to_string(thread_count - 1));
                        phase2_input_handles[thread_count].set_value(op(prior_result, local_result));
-//                           std::cout << "launching exclusive_scan " << (thread_count - 1) << "\n";
                        sequential_exclusive_scan(first, end, ldst, prior_result, op);
                    }));
 
