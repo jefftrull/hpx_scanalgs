@@ -61,6 +61,7 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
 
     // We also need to clean up the tasks at the end
     std::vector<std::future<void>> task_complete_handles;
+    task_complete_handles.reserve(thread_count);
 
     FwdIter1 first = start;
     FwdIter2 ldst = dst;
@@ -96,13 +97,14 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
                        sequential_exclusive_scan(first, end, ldst, prior_result, op);
                    }));
 
+    ldst += std::distance(first, end);
+
     // phase 3: wait for completion of partition scans
     for (auto & f : task_complete_handles)
     {
         f.get();
     }
 
-    ldst += std::distance(first, end);
     return std::make_pair(ldst, phase2_input_handles[thread_count].get_future().get());
 }
 
@@ -117,7 +119,7 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
 
     std::size_t sz = std::distance(start, end);
 
-    std::size_t chunk_count = std::max(sz / chunksize, std::size_t{1});
+    std::size_t chunk_count = (sz / chunksize) + 1;
 
     FwdIter1 last = start;
     std::advance(last, std::min(chunksize, sz));
