@@ -55,7 +55,6 @@ target_link_libraries( ba gbench )
 
 add_executable( mp manual_parallel.cpp )
 find_package( Threads )
-hpx_setup_target( mp )
 target_link_libraries( mp PRIVATE Threads::Threads gbench )
 
 hpx_setup_target( exsvp DEPENDENCIES gbench Boost::system Boost::program_options )
