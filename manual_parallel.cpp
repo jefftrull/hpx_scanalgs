@@ -73,8 +73,7 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
          i < thread_count - 1;
          i++, std::advance(first, partition_size), std::advance(ldst, partition_size))
     {
-        FwdIter1 last = first;
-        std::advance(last, partition_size);
+        FwdIter1 last = std::next(first, partition_size);
 
         task_complete_handles.push_back(
             std::async(std::launch::async,
@@ -133,10 +132,9 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
 
     std::size_t chunk_count = (sz / chunksize) + 1;
 
-    FwdIter1 last = start;
-    std::advance(last, std::min(chunksize, sz));
     true_start = start;
 
+    FwdIter1 last = std::next(start, std::min(chunksize, sz));
     for (std::size_t i = 0;
          i < (chunk_count - 1);
          ++i, std::advance(start, chunksize), std::advance(last, chunksize))
