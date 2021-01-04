@@ -56,8 +56,13 @@ def display_bm(title, evts, seq_runtime=None):
     basetime = None
     chunksize = -1
     inpsize = -1
+    tasks_launched = None
     for event in takewhile(lambda evt: evt.name != 'HPX_ALG:benchmark_exe_stop',
                            evts):
+        if re.match("HPX(_ALG)?:tasks_created", event.name):
+            assert(tasks_launched is None)
+            tasks_launched = event.timestamp
+
         if (re.match("HPX(_ALG)?:chunk_start", event.name) or re.match("HPX(_ALG)?:chunk_stop", event.name)) and event['stage'] == 2:
             continue
         if re.match("HPX(_ALG)?:chunk_start", event.name):
@@ -109,12 +114,19 @@ def display_bm(title, evts, seq_runtime=None):
     if seq_runtime:
         seqline = plt.axvline(x=seq_runtime, linestyle='--', color='gray', label='Seq Runtime')
 
+    tasksstartline = None
+    if tasks_launched:
+        assert(basetime)
+        tasksstartline = plt.axvline(x=tasks_launched - basetime, linestyle='--', color='green', label='All Tasks Created')
+
     # a helpful legend
     handles = [mpatches.Patch(color='red', label='Stage 1'),
                mlines.Line2D([], [], color='cyan', marker='d', linestyle='None', label='Stage 2'),
                mpatches.Patch(color='orange', label='Stage 3')]
     if seq_runtime:
         handles.append(seqline)
+    if tasksstartline:
+        handles.append(tasksstartline)
     plt.legend(handles=handles)
 
     plt.show()
