@@ -119,15 +119,13 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
     return std::make_pair(llast, phase2_input_handles[thread_count].get_future().get());
 }
 
-std::size_t chunksize = 2500000;
+std::size_t chunksize;   // sidebanded for benchmarking because it's not part of the interface
 
 namespace jet {
 // chunk up the original data in cache-friendly sizes
 template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
 FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
 {
-//    const std::size_t chunksize = 1250000;  // my laptop cache is 6MB; this should use 5MB
-
     std::size_t sz = std::distance(start, end);
 
     std::size_t chunk_count = (sz / chunksize) + 1;
@@ -181,8 +179,8 @@ void verify()
 // supply our custom thread_count/chunksize choices
 static void CustomArguments(benchmark::internal::Benchmark* b) {
     for (int tc = 4; tc <=8; tc++)
-        for (int chunk = 800000; chunk <= 40000000; chunk *= 2)
-            b->Args({40000000, tc, chunk});
+        for (int chunk = 20000; chunk <= 200000; chunk += 10000)
+            b->Args({16777216, tc, chunk});
 }
 
 int main(int argc, char* argv[])
@@ -241,7 +239,10 @@ int main(int argc, char* argv[])
                           [&]() { return dist(mersenne_engine); });
             std::vector<int> result(sz);
             thread_count = state.range(1);
-            chunksize = state.range(2);
+            // we run the multi-thread algorithm on chunks of this size:
+            chunksize = thread_count * state.range(2);
+            // which means each thread gets a chunk of size state.range(2)
+            // which is consistent with the way we analyze HPX
             for (auto _ : state) {
                 tracepoint(HPX_ALG, benchmark_exe_start, 0);
                 jet::exclusive_scan(data.begin(), data.end(), result.begin(), 0);
