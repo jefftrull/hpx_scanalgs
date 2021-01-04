@@ -34,6 +34,7 @@
 
 import sys
 import operator
+import re
 from itertools import takewhile, islice, dropwhile
 from functools import reduce
 
@@ -57,9 +58,9 @@ def display_bm(title, evts, seq_runtime=None):
     inpsize = -1
     for event in takewhile(lambda evt: evt.name != 'HPX_ALG:benchmark_exe_stop',
                            evts):
-        if (event.name == 'HPX:chunk_start' or event.name == 'HPX:chunk_stop') and event['stage'] == 2:
+        if (re.match("HPX(_ALG)?:chunk_start", event.name) or re.match("HPX(_ALG)?:chunk_stop", event.name)) and event['stage'] == 2:
             continue
-        if event.name == 'HPX:chunk_start':
+        if re.match("HPX(_ALG)?:chunk_start", event.name):
             if basetime == None:
                 basetime = event.timestamp
 
@@ -70,7 +71,7 @@ def display_bm(title, evts, seq_runtime=None):
             if event['stop_ofs'] > inpsize:
                 inpsize = event['stop_ofs']
 
-        if event.name == 'HPX:chunk_stop':
+        if re.match("HPX(_ALG)?:chunk_stop", event.name):
             start = starttimes[(event['start_ofs'], event['stop_ofs'], event['stage'])]
             stop = event.timestamp - basetime
             if event['stage'] == 1:
@@ -78,7 +79,7 @@ def display_bm(title, evts, seq_runtime=None):
             else:
                 f3_durations[(event['start_ofs'], event['stop_ofs'])] = (start, stop)
 
-        if event.name == 'HPX:stage2':
+        if re.match("HPX(_ALG)?:stage2", event.name):
             t = event.timestamp - basetime
             f2_times[t] = event['loc']
 
@@ -151,9 +152,9 @@ for evt in evts:
     for event in takewhile(lambda evt: evt.name != 'HPX_ALG:benchmark_exe_stop',
                           evts):
         # handle chunk start or stop
-        if event.name == 'HPX:chunk_stop' and event['stage'] == 1:
+        if re.match("HPX(_ALG)?:chunk_stop", event.name) and event['stage'] == 1:
             f1_stop[(event['start_ofs'], event['stop_ofs'])] = event.timestamp
-        if event.name == 'HPX:chunk_start' and event['stage'] == 3:
+        if re.match("HPX(_ALG)?:chunk_start", event.name) and event['stage'] == 3:
             f3_start[(event['start_ofs'], event['stop_ofs'])] = event.timestamp
 
     # handle benchmark end

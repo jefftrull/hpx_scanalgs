@@ -12,7 +12,8 @@
 #include <chrono>
 #include <iomanip>
 
-#include <hpx/parallel/util/tracepoints.h>
+#define TRACEPOINT_DEFINE
+#include "tracepoints.h"
 
 #include <benchmark/benchmark.h>
 
@@ -35,6 +36,8 @@ FwdIter2 sequential_exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T
 }
 
 std::size_t thread_count = 4;
+
+std::vector<int>::iterator true_start;   // sideband info for benchmarking/logging
 
 template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
 std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
@@ -76,12 +79,16 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
             std::async(std::launch::async,
                        [=, &phase2_input_handles](){
                            // phase 1: parallel accumulates on each partition
+                           tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 1);
                            T local_result = std::reduce(first, last, T{}, op);
+                           tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 1);
                            // store the accumulated result for the next partition
                            T prior_result = phase2_input_handles[i].get_future().get();
                            phase2_input_handles[i+1].set_value(op(prior_result, local_result));
                            // phase 2: sequential scan using results from partitions 0..i-1
+                           tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 3);
                            sequential_exclusive_scan(first, last, ldst, prior_result, op);
+                           tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 3);
                        }));
     }
 
@@ -90,11 +97,15 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
     task_complete_handles.push_back(
         std::async(std::launch::async,
                    [=, &phase2_input_handles](){
+                       tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 1);
                        T local_result = std::reduce(first, end, T{}, op);
+                       tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 1);
                        // store the accumulated result for the next "chunk"
                        T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
                        phase2_input_handles[thread_count].set_value(op(prior_result, local_result));
+                       tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 3);
                        sequential_exclusive_scan(first, end, ldst, prior_result, op);
+                       tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 3);
                    }));
 
     ldst += std::distance(first, end);
@@ -123,6 +134,8 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
 
     FwdIter1 last = start;
     std::advance(last, std::min(chunksize, sz));
+    true_start = start;
+
     for (std::size_t i = 0;
          i < (chunk_count - 1);
          ++i, std::advance(start, chunksize), std::advance(last, chunksize))
@@ -228,7 +241,9 @@ int main(int argc, char* argv[])
             thread_count = state.range(1);
             chunksize = state.range(2);
             for (auto _ : state) {
+                tracepoint(HPX_ALG, benchmark_exe_start);
                 jet::exclusive_scan(data.begin(), data.end(), result.begin(), 0);
+                tracepoint(HPX_ALG, benchmark_exe_stop);
                 benchmark::DoNotOptimize(result);
             }
         })->Apply(CustomArguments)->UseRealTime();

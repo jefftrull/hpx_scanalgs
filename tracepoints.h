@@ -28,6 +28,50 @@ TRACEPOINT_EVENT(
     TP_FIELDS()
 )
 
+// events just for local use (named similarly, but not the HPX events)
+TRACEPOINT_EVENT(
+    HPX_ALG,
+    chunk_start,
+    TP_ARGS(
+        std::size_t, start_ofs,
+        std::size_t, stop_ofs,
+        int, stage
+    ),
+    TP_FIELDS(
+        ctf_integer(std::size_t, start_ofs, start_ofs)
+        ctf_integer(std::size_t, stop_ofs, stop_ofs)
+        ctf_integer(int, stage, stage)
+    )
+)
+
+TRACEPOINT_EVENT(
+    HPX_ALG,
+    chunk_stop,
+    TP_ARGS(
+        std::size_t, start_ofs,
+        std::size_t, stop_ofs,
+        int, stage
+    ),
+    TP_FIELDS(
+        ctf_integer(std::size_t, start_ofs, start_ofs)
+        ctf_integer(std::size_t, stop_ofs, stop_ofs)
+        ctf_integer(int, stage, stage)
+    )
+)
+
+// finally a single event for stage 2, which generally does just one simple op
+// so we omit the stage number and data range
+TRACEPOINT_EVENT(
+    HPX_ALG,
+    stage2,
+    TP_ARGS(
+        std::size_t, loc
+    ),
+    TP_FIELDS(
+        ctf_integer(std::size_t, loc, loc)
+    )
+)
+
 #endif // _TRACEPOINTS_H
 
 #include <lttng/tracepoint-event.h>
