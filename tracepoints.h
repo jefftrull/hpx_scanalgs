@@ -17,8 +17,12 @@
 TRACEPOINT_EVENT(
     HPX_ALG,
     benchmark_exe_start,
-    TP_ARGS(),
-    TP_FIELDS()
+    TP_ARGS(
+        std::size_t, worker_thread
+    ),
+    TP_FIELDS(
+        ctf_integer(std::size_t, worker_thread, worker_thread)
+    )
 )
 
 TRACEPOINT_EVENT(

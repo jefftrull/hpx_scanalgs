@@ -99,7 +99,7 @@ void exs_bench(ExePolicy & ex, char const * name)
               _mm_clflush(pt);
           state.ResumeTiming();
 
-          tracepoint(HPX_ALG, benchmark_exe_start);
+          tracepoint(HPX_ALG, benchmark_exe_start, hpx::get_worker_thread_num());
           exclusive_scan(ex_cs, data.begin(), data.end(), result.begin(), 0);
           tracepoint(HPX_ALG, benchmark_exe_stop);
           benchmark::DoNotOptimize(result);

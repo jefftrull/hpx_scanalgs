@@ -241,7 +241,7 @@ int main(int argc, char* argv[])
             thread_count = state.range(1);
             chunksize = state.range(2);
             for (auto _ : state) {
-                tracepoint(HPX_ALG, benchmark_exe_start);
+                tracepoint(HPX_ALG, benchmark_exe_start, 0);
                 jet::exclusive_scan(data.begin(), data.end(), result.begin(), 0);
                 tracepoint(HPX_ALG, benchmark_exe_stop);
                 benchmark::DoNotOptimize(result);
