@@ -11,6 +11,7 @@
 #include <random>
 #include <chrono>
 #include <iomanip>
+#include <cstdio>
 
 #define TRACEPOINT_DEFINE
 #include "tracepoints.h"
@@ -190,6 +191,9 @@ int main(int argc, char* argv[])
 {
     verify();
     std::exit(0);
+
+    std::cout << "press enter to start benchmarking" << std::endl;
+    getchar();
 
     // process and remove gbench arguments
     benchmark::Initialize(&argc, argv);
