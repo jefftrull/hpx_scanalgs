@@ -26,14 +26,14 @@ void logtime(std::string const& log)
     std::cout << duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() << "\n";
 }
 
-template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
-FwdIter2 sequential_exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op = Op())
+template<typename FwdIter1, typename FwdIter2, typename T = typename FwdIter1::value_type, typename Op = std::plus<T>>
+T sequential_exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
 {
     while (start != end) {
         *dst++ = init;
         init = op(init, *start++);
     }
-    return dst;
+    return init;
 }
 
 std::size_t thread_count = 4;
@@ -74,41 +74,41 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
          i++, std::advance(first, partition_size), std::advance(ldst, partition_size))
     {
         FwdIter1 last = std::next(first, partition_size);
+        FwdIter2 llast = std::next(ldst, partition_size);
 
         task_complete_handles.push_back(
             std::async(std::launch::async,
                        [=, &phase2_input_handles](){
-                           // phase 1: parallel accumulates on each partition
+                           // phase 1: parallel exclusive scans on each partition
                            tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 1);
-                           T local_result = std::reduce(first, last, T{}, op);
+                           T local_result = sequential_exclusive_scan(first, last, ldst);
                            tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 1);
                            // store the accumulated result for the next partition
                            T prior_result = phase2_input_handles[i].get_future().get();
                            phase2_input_handles[i+1].set_value(op(prior_result, local_result));
-                           // phase 2: sequential scan using results from partitions 0..i-1
+                           // phase 2: update sequential scan using results from partitions 0..i-1
                            tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 3);
-                           sequential_exclusive_scan(first, last, ldst, prior_result, op);
+                           std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
                            tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 3);
                        }));
     }
 
     // the amount of data is not generally a multiple of the partition size so we
     // special case the final partition
+    auto llast = std::next(ldst, std::distance(first, end));
     task_complete_handles.push_back(
         std::async(std::launch::async,
                    [=, &phase2_input_handles](){
                        tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 1);
-                       T local_result = std::reduce(first, end, T{}, op);
+                       T local_result = sequential_exclusive_scan(first, end, ldst, T{}, op);
                        tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 1);
                        // store the accumulated result for the next "chunk"
                        T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
                        phase2_input_handles[thread_count].set_value(op(prior_result, local_result));
                        tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 3);
-                       sequential_exclusive_scan(first, end, ldst, prior_result, op);
+                       std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
                        tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 3);
                    }));
-
-    ldst += std::distance(first, end);
 
     // phase 3: wait for completion of partition scans
     for (auto & f : task_complete_handles)
@@ -116,7 +116,7 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
         f.get();
     }
 
-    return std::make_pair(ldst, phase2_input_handles[thread_count].get_future().get());
+    return std::make_pair(llast, phase2_input_handles[thread_count].get_future().get());
 }
 
 std::size_t chunksize = 2500000;
