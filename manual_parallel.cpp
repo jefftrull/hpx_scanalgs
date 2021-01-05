@@ -29,13 +29,33 @@ void logtime(std::string const& log)
 }
 
 template<typename FwdIter1, typename FwdIter2, typename T = typename FwdIter1::value_type, typename Op = std::plus<T>>
-T sequential_exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
+T sequential_exclusive_scan(FwdIter1 first, FwdIter1 last, FwdIter2 dest, T init = T(), Op op = Op())
 {
-    while (start != end) {
-        *dst++ = init;
-        init = op(init, *start++);
+    // taken from HPX, for maximum fidelity
+    // appears to be about 10% faster than my approach
+    T temp = init;
+    for (; first != last; (void) ++first, ++dest)
+    {
+        init = std::invoke(op, init, *first);
+        *dest = temp;
+        temp = init;
     }
-    return init;
+    return temp;
+
+}
+
+template<typename FwdIter1, typename FwdIter2, typename T = typename FwdIter1::value_type, typename Op = std::plus<T>>
+T sequential_exclusive_scan_n(FwdIter1 first, std::size_t count, FwdIter2 dest, T init = T(), Op op = Op())
+{
+    // HPX code
+    T temp = init;
+    for (; count-- != 0; (void) ++first, ++dest)
+    {
+        init = std::invoke(op, init, *first);
+        *dest = temp;
+        temp = init;
+    }
+    return temp;
 }
 
 std::size_t thread_count = 4;
