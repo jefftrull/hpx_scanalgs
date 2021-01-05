@@ -58,9 +58,17 @@ T sequential_exclusive_scan_n(FwdIter1 first, std::size_t count, FwdIter2 dest, 
     return temp;
 }
 
+//
+// sideband info for benchmarking/tracing
+//
+
+// performance tuning
+std::size_t chunksize;
 std::size_t thread_count = 4;
 
-std::vector<int>::iterator true_start;   // sideband info for benchmarking/logging
+// where each chunk begins
+std::vector<int>::iterator true_start;
+
 
 template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
 std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
@@ -137,7 +145,6 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
     }
 
 
-std::size_t chunksize;   // sidebanded for benchmarking because it's not part of the interface
     return std::make_pair(llast, final_result);
 }
 
@@ -171,6 +178,8 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
 
 void verify()
 {
+    chunksize = 250000;   // just as long as it's not 0
+
     // generate a bunch of random cases to show it works
     std::random_device rnd_device;
     std::mt19937 mersenne_engine{rnd_device()};
