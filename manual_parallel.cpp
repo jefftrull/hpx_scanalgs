@@ -13,6 +13,8 @@
 #include <iomanip>
 #include <cstdio>
 
+#include <emmintrin.h>
+
 #define TRACEPOINT_DEFINE
 #include "tracepoints.h"
 
@@ -208,6 +210,14 @@ int main(int argc, char* argv[])
                           [&]() { return dist(mersenne_engine); });
             std::vector<int> result(sz);
             for (auto _ : state) {
+                state.PauseTiming();
+                // flush input/output data to ensure we are "cold"
+                for (int * pt = data.data(); pt < (data.data() + sz); pt += 16)
+                    _mm_clflush(pt);
+                for (int * pt = result.data(); pt < (result.data() + sz); pt += 16)
+                    _mm_clflush(pt);
+                state.ResumeTiming();
+
                 sequential_exclusive_scan(data.begin(), data.end(), result.begin(), 0);
                 benchmark::DoNotOptimize(result);
             }
@@ -244,6 +254,14 @@ int main(int argc, char* argv[])
             // which means each thread gets a chunk of size state.range(2)
             // which is consistent with the way we analyze HPX
             for (auto _ : state) {
+                state.PauseTiming();
+                // flush input/output data to ensure we are "cold"
+                for (int * pt = data.data(); pt < (data.data() + sz); pt += 16)
+                    _mm_clflush(pt);
+                for (int * pt = result.data(); pt < (result.data() + sz); pt += 16)
+                    _mm_clflush(pt);
+                state.ResumeTiming();
+
                 tracepoint(HPX_ALG, benchmark_exe_start, 0);
                 jet::exclusive_scan(data.begin(), data.end(), result.begin(), 0);
                 tracepoint(HPX_ALG, benchmark_exe_stop);

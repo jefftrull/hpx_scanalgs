@@ -15,6 +15,8 @@
 
 #include <stdio.h>   // for getchar(). UGH
 
+#include <emmintrin.h>
+
 
 //
 // special executor parameters for benchmarking
