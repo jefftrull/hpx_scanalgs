@@ -80,44 +80,34 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
 
     // We do this in two phases contained in the same task, for cache locality reasons -
     // after the first phase the partition will be (at least in part) in the same core
-    std::vector<std::promise<T>> phase2_results(thread_count - 1);
+    std::vector<std::promise<T>> phase2_input_handles(thread_count);
+
+    // the "carry in" to the first group is already available - it's our init parameter
+    phase2_input_handles[0].set_value(init);
 
     // We also need to clean up the tasks at the end
     std::vector<std::future<void>> task_complete_handles;
     task_complete_handles.reserve(thread_count - 1);
 
-    // the first task is special, because its phase 2 input, init, is already available
-    // we just do a single sequential scan
-    FwdIter1 p1end = std::next(start, partition_size);
-    task_complete_handles.push_back(
-        std::async(std::launch::async,
-                   [=, &phase2_results](){
-                       tracepoint(HPX_ALG, chunk_start, std::distance(true_start, start), std::distance(true_start, p1end), 1);
-                       T local_result = sequential_exclusive_scan(start, p1end, dst, init, op);
-                       tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, start), std::distance(true_start, p1end), 1);
-                       phase2_results[0].set_value(local_result);
-                   }));
-
-    FwdIter1 first = p1end;
-    FwdIter2 ldst = std::next(dst, partition_size);
-
-    for (std::size_t taskno = 1;
-         taskno < thread_count - 1;
-         taskno++, std::advance(first, partition_size), std::advance(ldst, partition_size))
+    FwdIter1 first = start;
+    FwdIter2 ldst = dst;
+    for (std::size_t i = 0;
+         i < thread_count - 1;
+         i++, std::advance(first, partition_size), std::advance(ldst, partition_size))
     {
         FwdIter1 last = std::next(first, partition_size);
         FwdIter2 llast = std::next(ldst, partition_size);
 
         task_complete_handles.push_back(
             std::async(std::launch::async,
-                       [=, &phase2_results](){
+                       [=, &phase2_input_handles](){
                            // phase 1: parallel exclusive scans on each partition
                            tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 1);
                            T local_result = sequential_exclusive_scan(first, last, ldst);
                            tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 1);
                            // store the accumulated result for the next partition
-                           T prior_result = phase2_results[taskno-1].get_future().get();
-                           phase2_results[taskno].set_value(op(prior_result, local_result));
+                           T prior_result = phase2_input_handles[i].get_future().get();
+                           phase2_input_handles[i+1].set_value(op(prior_result, local_result));
                            // phase 2: update sequential scan using results from partitions 0..i-1
                            tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 3);
                            std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
@@ -134,7 +124,7 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
     T local_result = sequential_exclusive_scan(first, end, ldst);
     tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 1);
     // store the accumulated result for the next "chunk"
-    T prior_result = phase2_results[thread_count - 2].get_future().get();
+    T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
     T final_result = op(prior_result, local_result);
     tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 3);
     std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
