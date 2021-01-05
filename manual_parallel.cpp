@@ -69,6 +69,95 @@ std::size_t thread_count = 4;
 // where each chunk begins
 std::vector<int>::iterator true_start;
 
+template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
+std::pair<std::future<T>, std::vector<std::future<void>>>
+exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op,
+                       std::future<T> phase2_input_handle,
+                       std::vector<std::future<void>> completion_handles)
+{
+    std::size_t sz = std::distance(start, end);
+    std::size_t partition_size = sz / thread_count;
+
+    // launch appropriate tasks to do the next chunk of computation
+    // each tasks waits to start until the analogous task in the previous chunk completes
+    // the second phase of the tasks are chained together through the cumulative sum
+
+    std::vector<std::future<void>> task_complete_handles;
+    task_complete_handles.reserve(thread_count);
+
+    FwdIter1 first = start;
+    FwdIter2 ldst = dst;
+
+    for (std::size_t i = 0;
+         i < thread_count - 1;
+         i++, std::advance(first, partition_size), std::advance(ldst, partition_size))
+    {
+        FwdIter1 last = std::next(first, partition_size);
+        FwdIter2 llast = std::next(ldst, partition_size);
+
+        std::promise<T> phase2_result_promise;
+        std::future<T> phase2_result_handle = phase2_result_promise.get_future();
+
+        task_complete_handles.push_back(
+            std::async(std::launch::async,
+                       [=,
+                        prior_completion_handle = std::move(completion_handles[i]),
+                        phase2_input_handle = std::move(phase2_input_handle),
+                        phase2_result_promise = std::move(phase2_result_promise)
+                        ]() mutable {
+                           prior_completion_handle.get();
+                           // phase 1: parallel exclusive scans on each partition
+                           tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 1);
+                           T local_result = sequential_exclusive_scan(first, last, ldst);
+                           tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 1);
+                           // store the accumulated result for the next partition
+                           T prior_result = phase2_input_handle.get();
+                           phase2_result_promise.set_value(op(prior_result, local_result));
+                           // phase 2: update sequential scan using results from partitions 0..i-1
+                           tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 3);
+                           std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
+                           tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 3);
+                       }));
+
+        phase2_input_handle = std::move(phase2_result_handle);
+
+    }
+
+    // irregular final chunk
+    auto llast = std::next(ldst, std::distance(first, end));
+
+    std::promise<T> phase2_result_promise;
+    std::future<T> phase2_result_handle = phase2_result_promise.get_future();
+
+    task_complete_handles.push_back(
+        std::async(std::launch::async,
+                   [=,
+                    prior_completion_handle = std::move(completion_handles[thread_count - 1]),
+                    phase2_input_handle = std::move(phase2_input_handle),
+                    phase2_result_promise = std::move(phase2_result_promise)
+                       ]() mutable {
+                       prior_completion_handle.get();
+                       // phase 1: parallel exclusive scans on each partition
+                       tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 1);
+                       T local_result = sequential_exclusive_scan(first, end, ldst);
+                       tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 1);
+                       // store the accumulated result for the next partition
+                       T prior_result = phase2_input_handle.get();
+                       phase2_result_promise.set_value(op(prior_result, local_result));
+                       // phase 2: update sequential scan using results from partitions 0..i-1
+                       tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 3);
+                       std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
+                       tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 3);
+                   }));
+
+    // return futures for
+    // 1) the cumulative sum through this chunk
+    // 2) the "done" status of each task
+
+    return std::make_pair(std::move(phase2_result_handle),
+                          std::move(task_complete_handles));
+
+}
 
 template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
 std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
@@ -160,18 +249,52 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
     true_start = start;
 
     FwdIter1 last = std::next(start, std::min(chunksize, sz));
+
+    // set up the futures for exchanging info between stages
+    std::promise<T> init_promise;
+    init_promise.set_value(init);
+    std::future<T> running_sum_handle = init_promise.get_future();
+
+    // completion futures - to keep work running predictably
+    std::vector<std::promise<void>> chunk_completion_promises(thread_count);
+    std::vector<std::future<void>> chunk_completion_handles;
+    chunk_completion_handles.reserve(thread_count);
+    for (std::promise<void> & p : chunk_completion_promises)
+    {
+        p.set_value();
+        chunk_completion_handles.push_back(p.get_future());
+    }
+
+
     for (std::size_t i = 0;
          i < (chunk_count - 1);
-         ++i, std::advance(start, chunksize), std::advance(last, chunksize))
+         ++i, std::advance(start, chunksize),
+              std::advance(last, chunksize), std::advance(dst, chunksize))
     {
         // run the multi-threaded algorithm on the ith chunk
-        std::tie(dst, init) = exclusive_scan_mt(start, last, dst, init, op);
+        std::tie(running_sum_handle, chunk_completion_handles) =
+            exclusive_scan_mt_impl(start, last, dst, init, op,
+                                   std::move(running_sum_handle),
+                                   std::move(chunk_completion_handles));
     }
 
     // now the irregular final chunk
-    std::tie(dst, init) = exclusive_scan_mt(start, end, dst, init, op);
+    std::tie(running_sum_handle, chunk_completion_handles) =
+        exclusive_scan_mt_impl(start, end, dst, init, op,
+                               std::move(running_sum_handle),
+                               std::move(chunk_completion_handles));
 
-    return dst;
+    tracepoint(HPX_ALG, tasks_created);
+
+    // wait for all tasks to complete
+    for (std::future<void> & c : chunk_completion_handles)
+    {
+        c.get();
+    }
+
+    tracepoint(HPX_ALG, threads_done);
+
+    return std::next(dst, std::distance(start, end));  // updating dst for final chunk
 
 }
 }
