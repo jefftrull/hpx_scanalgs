@@ -80,14 +80,14 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
 
     // We do this in two phases contained in the same task, for cache locality reasons -
     // after the first phase the partition will be (at least in part) in the same core
-    std::vector<std::promise<T>> phase2_input_handles(thread_count + 1);
+    std::vector<std::promise<T>> phase2_input_handles(thread_count);
 
     // the "carry in" to the first group is already available - it's our init parameter
     phase2_input_handles[0].set_value(init);
 
     // We also need to clean up the tasks at the end
     std::vector<std::future<void>> task_complete_handles;
-    task_complete_handles.reserve(thread_count);
+    task_complete_handles.reserve(thread_count - 1);
 
     FwdIter1 first = start;
     FwdIter2 ldst = dst;
@@ -118,19 +118,17 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
     // the amount of data is not generally a multiple of the partition size so we
     // special case the final partition
     auto llast = std::next(ldst, std::distance(first, end));
-    task_complete_handles.push_back(
-        std::async(std::launch::async,
-                   [=, &phase2_input_handles](){
-                       tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 1);
-                       T local_result = sequential_exclusive_scan(first, end, ldst, T{}, op);
-                       tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 1);
-                       // store the accumulated result for the next "chunk"
-                       T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
-                       phase2_input_handles[thread_count].set_value(op(prior_result, local_result));
-                       tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 3);
-                       std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
-                       tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 3);
-                   }));
+
+    // run it directly
+    tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 1);
+    T local_result = sequential_exclusive_scan(first, end, ldst);
+    tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 1);
+    // store the accumulated result for the next "chunk"
+    T prior_result = phase2_input_handles[thread_count - 1].get_future().get();
+    T final_result = op(prior_result, local_result);
+    tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 3);
+    std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
+    tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 3);
 
     // phase 3: wait for completion of partition scans
     for (auto & f : task_complete_handles)
@@ -138,10 +136,10 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
         f.get();
     }
 
-    return std::make_pair(llast, phase2_input_handles[thread_count].get_future().get());
-}
 
 std::size_t chunksize;   // sidebanded for benchmarking because it's not part of the interface
+    return std::make_pair(llast, final_result);
+}
 
 namespace jet {
 // chunk up the original data in cache-friendly sizes
