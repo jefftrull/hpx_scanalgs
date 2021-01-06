@@ -121,6 +121,8 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
                        std::future<T> phase2_input_handle,
                        std::vector<std::future<void>> completion_handles)
 {
+    using namespace std::chrono_literals;
+
     std::size_t sz = std::distance(start, end);
     std::size_t partition_size = sz / thread_count;
 
@@ -152,19 +154,33 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
                         phase2_result_promise = std::move(phase2_result_promise)
                         ]() mutable {
                            prior_completion_handle.get();
-                           // phase 1: parallel exclusive scans on each partition
-                           tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 1);
-                           T local_result = sequential_exclusive_scan(first, last, ldst);
-                           tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 1);
-                           // store the accumulated result for the next partition
-                           T prior_result = phase2_input_handle.get();
-                           phase2_result_promise.set_value(op(prior_result, local_result));
-                           // phase 2: update sequential scan using results from partitions 0..i-1
-                           tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 3);
-                           // this loop_n gives us about 1%
-                           loop_n(ldst, partition_size,
-                                  [=](FwdIter2 it) { *it = op(prior_result, *it); });
-                           tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 3);
+                           // and now, something maybe clever
+                           // it's occasionally the case that, because of variations in execution time and scheduling,
+                           // the previous task has computed its stage 1 result before the current stage has begun
+                           // in such cases we only need to run stage 1 ourselves
+                           if (phase2_input_handle.wait_for(0s) == std::future_status::ready)
+                           {
+                               // phase 1: parallel exclusive scans on each partition
+                               tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 1);
+                               T local_result = sequential_exclusive_scan(first, last, ldst, phase2_input_handle.get());
+                               tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 1);
+                               phase2_result_promise.set_value(local_result);
+                               // no phase 2!
+                           } else {
+                               // phase 1: parallel exclusive scans on each partition
+                               tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 1);
+                               T local_result = sequential_exclusive_scan(first, last, ldst);
+                               tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 1);
+                               // store the accumulated result for the next partition
+                               T prior_result = phase2_input_handle.get();
+                               phase2_result_promise.set_value(op(prior_result, local_result));
+                               // phase 2: update sequential scan using results from partitions 0..i-1
+                               tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 3);
+                               // this loop_n gives us about 1%
+                               loop_n(ldst, partition_size,
+                                      [=](FwdIter2 it) { *it = op(prior_result, *it); });
+                               tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 3);
+                           }
                        }));
 
         phase2_input_handle = std::move(phase2_result_handle);
@@ -185,18 +201,28 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
                     phase2_result_promise = std::move(phase2_result_promise)
                        ]() mutable {
                        prior_completion_handle.get();
-                       // phase 1: parallel exclusive scans on each partition
-                       tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 1);
-                       T local_result = sequential_exclusive_scan(first, end, ldst);
-                       tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 1);
-                       // store the accumulated result for the next partition
-                       T prior_result = phase2_input_handle.get();
-                       phase2_result_promise.set_value(op(prior_result, local_result));
-                       // phase 2: update sequential scan using results from partitions 0..i-1
-                       tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 3);
-                       loop_n(ldst, partition_size,
-                              [=](FwdIter2 it) { *it = op(prior_result, *it); });
-                       tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 3);
+                       if (phase2_input_handle.wait_for(0s) == std::future_status::ready)
+                       {
+                           // phase 1: parallel exclusive scans on each partition
+                           tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 1);
+                           T local_result = sequential_exclusive_scan(first, end, ldst, phase2_input_handle.get());
+                           tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 1);
+                           phase2_result_promise.set_value(local_result);
+                           // no phase 2!
+                       } else {
+                           // phase 1: parallel exclusive scans on each partition
+                           tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 1);
+                           T local_result = sequential_exclusive_scan(first, end, ldst);
+                           tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 1);
+                           // store the accumulated result for the next partition
+                           T prior_result = phase2_input_handle.get();
+                           phase2_result_promise.set_value(op(prior_result, local_result));
+                           // phase 2: update sequential scan using results from partitions 0..i-1
+                           tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 3);
+                           loop_n(ldst, partition_size,
+                                  [=](FwdIter2 it) { *it = op(prior_result, *it); });
+                           tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 3);
+                       }
                    }));
 
     // return futures for
