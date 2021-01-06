@@ -91,10 +91,23 @@ def display_bm(title, evts, seq_runtime=None):
     fig, ax = plt.subplots()
 
     for chunk in f1_durations:
-        ax.broken_barh([(f1_durations[chunk][0], (f1_durations[chunk][1] - f1_durations[chunk][0])),
-                        (f3_durations[chunk][0], (f3_durations[chunk][1] - f3_durations[chunk][0]))],
-                       (chunk[0], chunk[1] - chunk[0]),
-                       facecolors=('tab:red', 'tab:orange'))
+        if chunk in f3_durations:
+            ax.broken_barh([(f1_durations[chunk][0], (f1_durations[chunk][1] - f1_durations[chunk][0])),
+                            (f3_durations[chunk][0], (f3_durations[chunk][1] - f3_durations[chunk][0]))],
+                           (chunk[0], chunk[1] - chunk[0]),
+                           facecolors=('tab:red', 'tab:orange'))
+        else:
+            ax.broken_barh([(f1_durations[chunk][0], (f1_durations[chunk][1] - f1_durations[chunk][0]))],
+                           (chunk[0], chunk[1] - chunk[0]),
+                           facecolors=('tab:red'))
+
+    # the above only displays chunks with f1's... it's possible with my new scheme to have an f3 without f1
+    for chunk in f3_durations:
+        if chunk not in f1_durations:
+            ax.broken_barh([(f3_durations[chunk][0], (f3_durations[chunk][1] - f3_durations[chunk][0]))],
+                           (chunk[0], chunk[1] - chunk[0]),
+                           facecolors=('tab:orange'))
+
     # use chunk boundaries for y axis ticks
     assert(chunksize != -1)
     assert(inpsize != -1)
