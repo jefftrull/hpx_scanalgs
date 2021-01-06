@@ -1,6 +1,11 @@
 // Parallel Exclusive Scan testbed
 // a prototype done "manually" (using C++17 features) only
 
+//  loop_n code Copyright (c) 2007-2020 Hartmut Kaiser
+//  and distributed under the Boost Software License, Version 1.0
+//  everything else Copyright (c) 2018-2020 Jeffrey Trull
+//  and distributed under the MIT license
+
 #include <vector>
 #include <numeric>
 #include <algorithm>
@@ -26,6 +31,47 @@ void logtime(std::string const& log)
 
     using namespace std::chrono;
     std::cout << duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() << "\n";
+}
+
+// experiment:
+// use loop_n from HPX to see if it helps
+template <typename Iter, typename F>
+static constexpr Iter loop_n(
+    Iter it, std::size_t num, F&& f)
+{
+    while (num >= 4)
+    {
+        f(it);
+        f(it + 1);
+        f(it + 2);
+        f(it + 3);
+
+        it += 4;
+        num -= 4;
+    }
+
+    switch (num)
+    {
+        case 3:
+            f(it);
+            f(it + 1);
+            f(it + 2);
+            break;
+
+        case 2:
+            f(it);
+            f(it + 1);
+            break;
+
+        case 1:
+            f(it);
+            break;
+
+        default:
+            break;
+    }
+
+    return it + num;
 }
 
 template<typename FwdIter1, typename FwdIter2, typename T = typename FwdIter1::value_type, typename Op = std::plus<T>>
@@ -115,7 +161,9 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
                            phase2_result_promise.set_value(op(prior_result, local_result));
                            // phase 2: update sequential scan using results from partitions 0..i-1
                            tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, last), 3);
-                           std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
+                           // this loop_n gives us about 1%
+                           loop_n(ldst, partition_size,
+                                  [=](FwdIter2 it) { *it = op(prior_result, *it); });
                            tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, last), 3);
                        }));
 
@@ -146,7 +194,8 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
                        phase2_result_promise.set_value(op(prior_result, local_result));
                        // phase 2: update sequential scan using results from partitions 0..i-1
                        tracepoint(HPX_ALG, chunk_start, std::distance(true_start, first), std::distance(true_start, end), 3);
-                       std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
+                       loop_n(ldst, partition_size,
+                              [=](FwdIter2 it) { *it = op(prior_result, *it); });
                        tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 3);
                    }));
 
