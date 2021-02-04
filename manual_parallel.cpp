@@ -230,6 +230,8 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
 template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
 std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T(), Op op = Op())
 {
+    tracepoint(HPX_ALG, starting_mt);
+
     std::size_t sz = std::distance(start, end);
 
 /*
@@ -280,6 +282,8 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
                        }));
     }
 
+    tracepoint(HPX_ALG, tasks_created);
+
     // the amount of data is not generally a multiple of the partition size so we
     // special case the final partition
     auto llast = std::next(ldst, std::distance(first, end));
@@ -295,12 +299,15 @@ std::pair<FwdIter2, T> exclusive_scan_mt(FwdIter1 start, FwdIter1 end, FwdIter2 
     std::transform(ldst, llast, ldst, [=](T const & v) { return op(prior_result, v); });
     tracepoint(HPX_ALG, chunk_stop, std::distance(true_start, first), std::distance(true_start, end), 3);
 
+    tracepoint(HPX_ALG, f2_final_done);
+
     // phase 3: wait for completion of partition scans
     for (auto & f : task_complete_handles)
     {
         f.get();
     }
 
+    tracepoint(HPX_ALG, threads_done);
 
     return std::make_pair(llast, final_result);
 }

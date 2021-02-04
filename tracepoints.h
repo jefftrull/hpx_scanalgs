@@ -76,6 +76,34 @@ TRACEPOINT_EVENT(
     )
 )
 
+TRACEPOINT_EVENT(
+    HPX_ALG,
+    starting_mt,
+    TP_ARGS(),
+    TP_FIELDS()
+)
+
+TRACEPOINT_EVENT(
+    HPX_ALG,
+    tasks_created,
+    TP_ARGS(),
+    TP_FIELDS()
+)
+
+TRACEPOINT_EVENT(
+    HPX_ALG,
+    f2_final_done,
+    TP_ARGS(),
+    TP_FIELDS()
+)
+
+TRACEPOINT_EVENT(
+    HPX_ALG,
+    threads_done,
+    TP_ARGS(),
+    TP_FIELDS()
+)
+
 #endif // _TRACEPOINTS_H
 
 #include <lttng/tracepoint-event.h>
