@@ -18,6 +18,8 @@
 #include <iomanip>
 #include <cstdio>
 
+#include "thread_pool.hpp"
+
 #include <emmintrin.h>
 
 #define TRACEPOINT_DEFINE
@@ -112,6 +114,8 @@ T sequential_exclusive_scan_n(FwdIter1 first, std::size_t count, FwdIter2 dest, 
 std::size_t chunksize;
 std::size_t thread_count = 4;
 
+thread_pool tp(thread_count - 1);
+
 // where each chunk begins
 std::vector<int>::iterator true_start;
 
@@ -147,7 +151,7 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
         std::future<T> phase2_result_handle = phase2_result_promise.get_future();
 
         task_complete_handles.push_back(
-            std::async(std::launch::async,
+            tp.submit(
                        [=,
                         prior_completion_handle = std::move(completion_handles[i]),
                         phase2_input_handle = std::move(phase2_input_handle),
@@ -189,7 +193,7 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
     std::future<T> phase2_result_handle = phase2_result_promise.get_future();
 
     task_complete_handles.push_back(
-        std::async(std::launch::async,
+        tp.submit(
                    [=,
                     prior_completion_handle = std::move(completion_handles[thread_count - 1]),
                     phase2_input_handle = std::move(phase2_input_handle),
