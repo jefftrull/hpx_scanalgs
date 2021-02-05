@@ -365,6 +365,8 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
 
     tracepoint(HPX_ALG, tasks_created);
 
+    tp.help();
+
     // wait for all tasks to complete
     for (std::future<void> & c : chunk_completion_handles)
     {

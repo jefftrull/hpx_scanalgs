@@ -69,6 +69,9 @@ struct thread_pool
 
     ~thread_pool();
 
+    // become one of the worker threads until task queue empties
+    void help();
+
 private:
     void do_work();         // one call per thread
 
@@ -156,5 +159,24 @@ thread_pool::do_work()
 
         if (!shutting_down_.load())
             work();
+    }
+}
+
+void thread_pool::help()
+{
+    while (!shutting_down_.load())
+    {
+        movable_fn work;
+        {
+            std::unique_lock<std::mutex> l(check_for_work_mut_);
+
+            if (tasks_.empty())
+                return;
+
+            work = std::move(tasks_.front());
+            tasks_.pop();
+        }
+
+        work();
     }
 }
