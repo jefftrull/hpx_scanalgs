@@ -7,56 +7,6 @@
 #include <vector>
 #include <queue>
 
-// a movable replacement for std::function<void()>
-// this is needed because std::promise<T> is move-only, and so can't be stored
-// in a std::function. We need to make our own type-erased container for tasks:
-struct movable_fn
-{
-    template<typename F>
-    movable_fn(F && f) : f_(new callable<F>(std::forward<F>(f))) {}
-
-    movable_fn() : f_(nullptr) {}
-
-    movable_fn(movable_fn && other)
-    {
-        f_ = other.f_;
-        other.f_ = nullptr;
-    }
-    movable_fn & operator=(movable_fn && other)
-    {
-        f_ = other.f_;
-        other.f_ = nullptr;
-        return *this;
-    }
-
-private:
-    struct base
-    {
-        virtual void operator()() = 0;
-        virtual ~base() {}
-    };
-
-    template<typename F>
-    struct callable : public base
-    {
-        callable(F && f) : f_(std::forward<F>(f)) {}
-        virtual void operator()() { f_(); }
-        F f_;
-    };
-
-    base * f_;
-
-public:
-    void operator()() { (*f_)(); }
-
-    ~movable_fn()
-    {
-        if (f_)
-            delete f_;
-    }
-
-};
-
 struct thread_pool
 {
     thread_pool(std::size_t sz);
@@ -77,7 +27,7 @@ private:
 
     std::size_t sz_;
     std::atomic<bool> shutting_down_;
-    std::queue<movable_fn> tasks_;
+    std::queue<std::packaged_task<void()>> tasks_;
     std::vector<std::thread> workers_;
     std::mutex check_for_work_mut_;
     std::condition_variable check_for_work_;
@@ -142,7 +92,7 @@ thread_pool::do_work()
     // these repeated checks of the atomic can probably be cleaned up
     while (!shutting_down_.load())
     {
-        movable_fn work;
+        std::packaged_task<void()> work;
         {
             std::unique_lock<std::mutex> l(check_for_work_mut_);
             check_for_work_.wait(l, [this]()
@@ -166,7 +116,7 @@ void thread_pool::help()
 {
     while (!shutting_down_.load())
     {
-        movable_fn work;
+        std::packaged_task<void()> work;
         {
             std::unique_lock<std::mutex> l(check_for_work_mut_);
 
