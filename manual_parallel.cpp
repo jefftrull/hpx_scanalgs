@@ -17,6 +17,7 @@
 #include <chrono>
 #include <iomanip>
 #include <cstdio>
+#include <iterator>
 
 #include "thread_pool.hpp"
 
@@ -122,8 +123,7 @@ std::vector<int>::iterator true_start;
 template<typename T, typename FwdIter1, typename FwdIter2, typename Op = std::plus<T>>
 std::pair<std::future<T>, std::vector<std::future<void>>>
 exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op,
-                       std::future<T> phase2_input_handle,
-                       std::vector<std::future<void>> completion_handles)
+                       std::future<T> phase2_input_handle)
 {
     using namespace std::chrono_literals;
 
@@ -153,11 +153,9 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
         task_complete_handles.push_back(
             tp.submit(
                        [=,
-                        prior_completion_handle = std::move(completion_handles[i]),
                         phase2_input_handle = std::move(phase2_input_handle),
                         phase2_result_promise = std::move(phase2_result_promise)
                         ]() mutable {
-                           prior_completion_handle.get();
                            if (phase2_input_handle.wait_for(0s) != std::future_status::ready)
                            {
                                // phase 1: parallel accumulates on each partition
@@ -195,11 +193,9 @@ exclusive_scan_mt_impl(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init, Op op
     task_complete_handles.push_back(
         tp.submit(
                    [=,
-                    prior_completion_handle = std::move(completion_handles[thread_count - 1]),
                     phase2_input_handle = std::move(phase2_input_handle),
                     phase2_result_promise = std::move(phase2_result_promise)
                        ]() mutable {
-                       prior_completion_handle.get();
                        if (phase2_input_handle.wait_for(0s) != std::future_status::ready)
                        {
                            // phase 1: accumulate
@@ -334,16 +330,9 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
     init_promise.set_value(init);
     std::future<T> running_sum_handle = init_promise.get_future();
 
-    // completion futures - to keep work running predictably
-    std::vector<std::promise<void>> chunk_completion_promises(thread_count);
+    // completion futures - so we know when all phase 2's are done
     std::vector<std::future<void>> chunk_completion_handles;
-    chunk_completion_handles.reserve(thread_count);
-    for (std::promise<void> & p : chunk_completion_promises)
-    {
-        p.set_value();
-        chunk_completion_handles.push_back(p.get_future());
-    }
-
+    chunk_completion_handles.reserve(chunk_count);
 
     for (std::size_t i = 0;
          i < (chunk_count - 1);
@@ -351,17 +340,26 @@ FwdIter2 exclusive_scan(FwdIter1 start, FwdIter1 end, FwdIter2 dst, T init = T()
               std::advance(last, chunksize), std::advance(dst, chunksize))
     {
         // run the multi-threaded algorithm on the ith chunk
-        std::tie(running_sum_handle, chunk_completion_handles) =
+        std::vector<std::future<void>> our_completions;
+        std::tie(running_sum_handle, our_completions) =
             exclusive_scan_mt_impl(start, last, dst, init, op,
-                                   std::move(running_sum_handle),
-                                   std::move(chunk_completion_handles));
+                                   std::move(running_sum_handle));
+        // efficiently move the new futures into the full result
+        chunk_completion_handles.insert(
+            chunk_completion_handles.end(),
+            std::make_move_iterator(our_completions.begin()),
+            std::make_move_iterator(our_completions.end()));
     }
 
     // now the irregular final chunk
-    std::tie(running_sum_handle, chunk_completion_handles) =
+    std::vector<std::future<void>> our_completions;
+    std::tie(running_sum_handle, our_completions) =
         exclusive_scan_mt_impl(start, end, dst, init, op,
-                               std::move(running_sum_handle),
-                               std::move(chunk_completion_handles));
+                               std::move(running_sum_handle));
+    chunk_completion_handles.insert(
+        chunk_completion_handles.end(),
+        std::make_move_iterator(our_completions.begin()),
+        std::make_move_iterator(our_completions.end()));
 
     tracepoint(HPX_ALG, tasks_created);
 
