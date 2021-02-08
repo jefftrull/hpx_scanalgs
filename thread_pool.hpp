@@ -46,13 +46,14 @@ template<typename F>
 std::future<std::invoke_result_t<F>>
 thread_pool::submit(F f)
 {
+    using return_t = std::invoke_result_t<F>;
+
     if (shutting_down_.load())
         // draining queue
         // note this will get an exception if the consumer tries to use it
         // I suppose this is better than a deadlock?
-        return std::future<std::invoke_result_t<F>>();
+        return std::future<return_t>();
 
-    using return_t = std::invoke_result_t<F>;
     std::promise<return_t> p;
     std::future<return_t> fut = p.get_future();
 
